@@ -1,0 +1,148 @@
+# =================================================================
+# LAMMPS Script: Uniaxial Tension Simulation dengan Morse Potential
+# Test: Uniaxial Tension untuk menghitung Young's Modulus 
+# a.arkundato@unej.ac.id
+# =================================================================
+
+# ------------------------- INITIALIZATION -------------------------
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+
+read_data armor_PPM_no_bullet.lmp
+
+
+# ------------------------- MORSE POTENTIAL PARAMETERS -------------------------
+
+# Format: pair_coeff i j D0 alpha r0 cutoff
+
+pair_style      morse 8.0
+
+# Definisi massa (united atom approach)
+mass 1 14.027   # CH2 united atom
+mass 2 15.035   # CH3 united atom (chain ends)
+
+pair_style lj/cut 14.0 #(cutoff 14 Å sudah cukup)
+
+
+pair_coeff 2 2 0.1447 3.75    # CH3-CH3
+pair_coeff 1 1 0.06 3.94    # CH2-CH2
+
+# Aktifkan Lorentz-Berthelot mixing
+pair_modify mix arithmetic
+
+# Neighbor settings (optimized untuk B4C)
+neighbor        2.5 bin
+neigh_modify    delay 0 every 1 check yes one 10000 page 100000
+
+# ------------------------- MINIMISASI ENERGI -------------------------
+thermo          10
+thermo_style    custom step pe ke etotal press vol density
+min_style cg          # atau hftn
+fix 1 all box/relax iso 0.0 vmax 0.001
+minimize 1e-6 1e-8 5000 10000
+unfix 1
+# Check hasil minimisasi
+variable pe_min equal pe
+print "Energy after minimization: ${pe_min}"
+
+# ------------------------- EQUILIBRATION -------------------------
+reset_timestep 0
+timestep 0.0005  # timestep 1 fs untuk material keras
+# Inisialisasi kecepatan
+velocity all create 300 87654321 mom yes rot no
+# Equilibration dengan NPT ensemble
+fix 1 all npt temp 300 300 0.1 iso 0 0 1.0 drag 1.0
+fix 2 all temp/rescale 10 300 300 0.02 1.0
+thermo 100
+thermo_style custom step temp press pe ke etotal vol density lx ly lz
+# Run equilibration
+run 100000
+# Unfix equilibration fixes
+unfix 1
+#unfix 2
+
+
+# ------------------------- COMPUTE & OUTPUT -------------------------
+compute peratom all pe/atom
+compute stress all stress/atom NULL
+compute temp_atom all temp
+
+
+
+#========================= uniaksial dan poisson ======================
+# ------- UNIAXIAL TENSION — arah Z (sumbu rantai UHMWPE) -------
+print "Starting uniaxial tension simulation (Z-direction, chain axis)..."
+
+variable tmp  equal "lx"
+variable L0   equal ${tmp}
+variable tmp2 equal "ly"
+variable W0   equal ${tmp2}
+variable tmp3 equal "lz"
+variable H0   equal ${tmp3}
+
+print "Initial dimensions - Lx: ${L0}, Ly: ${W0}, Lz: ${H0}"
+
+reset_timestep 0
+timestep 0.0005
+
+# NPT: bebaskan X dan Y (Poisson), tahan tekanan = 0
+# Z adalah arah deformasi → JANGAN masuk ke fix npt
+fix tension_control all npt temp 300 300 0.1 x 0 0 1.0 y 0 0 1.0 drag 1.0
+
+variable strain_rate         equal 5.0e9
+variable strain_rate_reduced equal "v_strain_rate / 1.0e12"
+
+# Deformasi di Z (bukan X)
+fix deform_z all deform 1 z erate ${strain_rate_reduced} units box remap x
+
+# Strain engineering
+variable strain_x equal "(lx - v_L0)/v_L0"   # transversal → Poisson ν_xz
+variable strain_y equal "(ly - v_W0)/v_W0"   # transversal → Poisson ν_yz
+variable strain_z equal "(lz - v_H0)/v_H0"   # longitudinal (arah tarik)
+
+# Tegangan: konversi bar → GPa (1 bar = 1e-4 GPa)
+variable stress_xx equal "-pxx*1.0e-4"
+variable stress_yy equal "-pyy*1.0e-4"
+variable stress_zz equal "-pzz*1.0e-4"
+
+variable stress_vm equal "sqrt(0.5*((v_stress_xx-v_stress_yy)^2 + (v_stress_yy-v_stress_zz)^2 + (v_stress_zz-v_stress_xx)^2))"
+
+fix output_data all print 100 &
+    "${strain_x} ${strain_y} ${strain_z} ${stress_xx} ${stress_yy} ${stress_zz} ${stress_vm}" &
+    file stress_strain_data.txt screen no &
+    title "# Strain_x(Poisson) Strain_y(Poisson) Strain_z(longitudinal) Stress_xx(GPa) Stress_yy(GPa) Stress_zz(GPa) Stress_VM(GPa)"
+
+thermo 1000
+thermo_style custom step v_strain_z v_strain_x v_strain_y temp &
+    v_stress_xx v_stress_yy v_stress_zz v_stress_vm press vol
+
+run 50000
+
+print "Uniaxial tension simulation completed successfully"
+print "Data saved to stress_strain_data.txt"
+
+variable final_strain_z  equal v_strain_z
+variable final_strain_x  equal v_strain_x
+variable final_strain_y  equal v_strain_y
+variable final_stress_zz equal v_stress_zz
+
+print "Final longitudinal strain  (z): ${final_strain_z}"
+print "Final transverse strain    (x): ${final_strain_x}"
+print "Final transverse strain    (y): ${final_strain_y}"
+print "Final stress_zz                : ${final_stress_zz} GPa"
+
+# Modulus Young aksial dan rasio Poisson
+variable E_z    equal "v_final_stress_zz / v_final_strain_z"
+variable nu_xz  equal "-v_final_strain_x / v_final_strain_z"
+variable nu_yz  equal "-v_final_strain_y / v_final_strain_z"
+
+print "Young modulus E_z  (approx): ${E_z} GPa"
+print "Poisson ratio nu_xz        : ${nu_xz}"
+print "Poisson ratio nu_yz        : ${nu_yz}"
+
+unfix tension_control
+unfix deform_z
+unfix output_data
+
