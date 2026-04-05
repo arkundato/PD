@@ -1,0 +1,128 @@
+# LAMMPS Input Script a.arkundato@unej.ac.id
+
+# Basic setup
+units metal
+atom_style atomic
+boundary p p f
+
+# Read data file
+read_data armor_BCCM.lmp
+
+mass 1 10.811   # B (Boron)
+mass 2 12.011   # C (Carbon)
+mass 3 55.845  # Fe (projectile)
+
+# Interatomic potential (Placeholder; isi sendiri coeff realistis dari literatur)
+pair_style      morse 10.0                 # increased cutoff for hard material
+
+
+# GANTI INI SESUAI MATERIAL TARGET >> See in manuscript in details
+pair_coeff 1 1 0.220243  1.349753  1.729008
+pair_coeff 2 2 0.93810   1.43160   1.9014
+pair_coeff 3 3 0.65      1.95      2.82  #nilai parameter Fe peluru diperkuat untuk kaus balistik
+
+pair_coeff 1 2 0.454544  1.390677  1.815204   # B-C
+pair_coeff 1 3 0.378362  1.649876  2.274504   # B-Fe
+pair_coeff 2 3 0.780875  1.690800  2.360700   # C-Fe
+
+
+# Neighbor settings
+neighbor 2.5 bin
+neigh_modify delay 0 every 1 check yes one 50000 page 500000
+
+# Define groups
+group projectile type 3 
+group target type 1 2
+
+# Analysis computes
+compute proj_com projectile com
+compute target_com target com
+compute proj_temp projectile temp
+compute target_temp target temp
+compute proj_z_coords projectile property/atom z
+compute proj_z_min projectile reduce min c_proj_z_coords  # Tetap untuk ref, jika perlu
+
+# Initialize computes
+run 0
+
+# Variables for analysis (Fokus: COM Z, speed, vz; penetration berdasarkan COM)
+variable step_out equal step
+variable time_out equal time
+variable proj_com_z equal c_proj_com[3]  # COM Z projectile (posisi realistis; ini adalah variabel utama untuk posisi Z peluru)
+variable proj_vz equal vcm(projectile,z)  # Velocity Z COM
+variable proj_speed equal sqrt(vcm(projectile,x)^2 + vcm(projectile,y)^2 + vcm(projectile,z)^2)  # Total speed COM
+variable armor_top equal 96.96
+variable diff_depth equal v_armor_top - v_proj_com_z  # Bantu untuk hitung depth (hindari duplikasi perhitungan)
+variable penetration_depth equal "ternary(v_diff_depth > 0, v_diff_depth, 0)"  # KOREKSI: Gunakan ternary untuk simulasi max(0, diff); depth relatif, tidak duplikasi dengan posisi Z absolut
+
+# ===== SIMULATION PROCEDURE =====
+print '=== Fe vs armor BALLISTIC IMPACT SIMULATION ==='
+print 'Impact: 700 m/s (7.0 Å/ps)'
+print 'Armor top: 96.96  Å'
+
+# 1. Energy minimization
+print 'Starting energy minimization...'
+minimize 1e-6 1e-8 1000 10000
+print 'Energy minimization completed'
+write_data equilibrated_configuration.data
+
+# 2. Target equilibration
+print 'Starting target equilibration...'
+velocity target create 300.0 12345 dist gaussian
+fix nve_target target nve
+fix langevin_target target langevin 300.0 300.0 0.1 48279
+timestep 0.0001
+run 5000
+unfix nve_target
+unfix langevin_target
+print 'Target equilibration completed'
+
+# 3. Apply impact velocity
+print 'Applying impact velocity...'
+velocity projectile set 0.0 0.0 -7.000
+print 'Projectile velocity: -7.000 A/ps'
+
+# 4. Main ballistic simulation
+print 'Starting main ballistic impact simulation...'
+fix nve_all all nve
+fix temp_control target temp/rescale 100 300.0 300.0 0.02 1.0
+timestep 0.0005
+
+# Output settings (Sesuaikan tanpa KE)
+thermo 100
+thermo_style custom step time temp pe ke etotal press v_proj_speed v_proj_com_z v_penetration_depth
+thermo_modify lost warn flush yes
+
+# Output trajectory
+dump traj all custom 1000 ballistic_trajectory.lammpstrj id type x y z vx vy vz
+dump_modify traj sort id
+
+# Analysis output (Simpan: step time com_z vz_proj speed_proj penetration_depth)
+fix analysis_out all print 50 '${step_out} ${time_out} ${proj_com_z} ${proj_vz} ${proj_speed} ${penetration_depth}' file penetration_analysis.txt screen no title '# step time com_z vz_proj speed_proj penetration_depth'
+
+# Auto-stopping mechanism
+fix auto_stop all halt 100 v_proj_speed < 0.08
+
+# Run main simulation
+run 180000
+
+# Post-impact relaxation
+print 'Impact phase completed. Starting relaxation...'
+unfix auto_stop
+timestep 0.002
+run 2500
+
+# Final analysis
+print '=== BALLISTIC IMPACT ANALYSIS COMPLETE ==='
+print 'Final projectile COM Z: ${proj_com_z} A'
+print 'Final speed: ${proj_speed} A/ps'
+print 'Total penetration: ${penetration_depth} A'
+print 'Simulation completed successfully!'
+
+# Cleanup
+unfix analysis_out
+unfix nve_all
+unfix temp_control
+undump traj
+
+
