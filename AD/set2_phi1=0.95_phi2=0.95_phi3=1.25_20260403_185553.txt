@@ -1,0 +1,91 @@
+  Set φ         : φ₁=0.950  φ₂=0.950  φ₃=1.250  [over-design: φ₃ > 1.0]
+======================================================================
+
+── DATA INPUT ─────────────────────────────────────────────────────────
+  PD B4C        : PD(v) = 10.0724 × v^0.3732
+  PD TiAlV      : PD(v) = 6.985 × v^0.5701
+  PD UHMWPE     : PD(v) = 10.6902 × v^1.5948
+  E_abs B4C     : E(v)  = 1.3716 × v^2.1031
+  E_abs TiAlV   : E(v)  = 1.6154 × v^2.039
+  E_abs UHMWPE  : E(v)  = 2.1982 × v^1.8712
+  ρ₁ (B4C)      = 0.8695 g/cm³
+  ρ₂ (TiAlV)    = 2.2413 g/cm³
+  ρ₃ (UHMWPE)   = 0.5175 g/cm³
+  AD_ref        = 3.26 g/cm²
+  Jenis peluru  = Fe  (m_atom = 55.845 amu)
+  N (atom)      = 609
+  φ₁            = 0.95
+  φ₂            = 0.95
+  φ₃            = 1.25  [over-design: φ₃ > 1.0]
+  v₀            = 10.0 Å/ps
+
+── LANGKAH 1 — PD pada v₀ ─────────────────────────────────────────────
+  PD_B4C(v₀)    = 10.0724×10.0^0.3732  = 23.7866 Å
+  PD_TiAlV(v₀)  = 6.985×10.0^0.5701  = 25.9577 Å
+  PD_UHMWPE(v₀) = 10.6902×10.0^1.5948  = 420.519 Å
+
+── LANGKAH 2 — Layer 1 B4C ────────────────────────────────────────────
+  t₁ = φ₁ × PD_B4C(v₀)   = 0.95 × 23.7866  = 22.5973 Å
+  v₁ = v₀ × √(1−φ₁)      = 10.0 × √(1−0.95)  = 2.23607 Å/ps
+
+── LANGKAH 3 — Layer 2 TiAlV ──────────────────────────────────────────
+  PD_TiAlV(v₁)  = 6.985×2.23607^0.5701  = 11.0512 Å
+  t₂ = φ₂ × PD_TiAlV(v₁)  = 0.95 × 11.0512  = 10.4986 Å
+  v₂ = v₁ × √(1−φ₂)       = 2.23607 × √(1−0.95)  = 0.5 Å/ps
+
+── LANGKAH 4 — Layer 3 UHMWPE ─────────────────────────────────────────
+  PD_UHMWPE(v₂) = 10.6902×0.5^1.5948  = 3.53918 Å
+  t₃ = φ₃ × PD_UHMWPE(v₂) = 1.25 × 3.53918  = 4.42398 Å
+  ⚠  φ₃ = 1.250 > 1.0 → t₃ melebihi PD intrinsik (over-design)
+
+── LANGKAH 5 — Ketebalan Total ─────────────────────────────────────────
+  T_total = t₁+t₂+t₃ = 22.5973+10.4986+4.42398 = 37.5199 Å
+  %t₁ = 60.2275%
+  %t₂ = 27.9814%
+  %t₃ = 11.7910%
+  Rasio t₁:t₂:t₃ = 22.5973 : 10.4986 : 4.4240
+
+── LANGKAH 6 — Areal Density Relatif ──────────────────────────────────
+  AD_rel = ρ₁t₁+ρ₂t₂+ρ₃t₃
+         = 0.8695×22.5973 + 2.2413×10.4986 + 0.5175×4.42398
+         = 45.4683  g/cm²·Å
+
+── LANGKAH 7 — Energi Kinetik & Kapasitas Serap ───────────────────────
+  m  = N × m_atom = 609 × 55.845 amu = 5.64743e-20 g
+  v₀ = 100000 cm/s  →  KE₀ = 176.242 eV
+  v₁ = 22360.7 cm/s  →  KE₁ = 8.81212 eV
+  v₂ = 5000 cm/s  →  KE₂ = 0.440606 eV
+
+  Energi diserap layer 1 (B4C)   : E_abs1 = φ₁·KE₀ = 167.43 eV
+  Energi diserap layer 2 (TiAlV) : E_abs2 = φ₂·KE₁ = 8.37151 eV
+  Energi diserap layer 3 (UHMWPE): E_abs3 = φ₃·KE₂ = 0.550757 eV
+  E_cap,total = E_abs1+E_abs2+E_abs3       = 176.353 eV
+
+── LANGKAH 8 — Kriteria Stopping ──────────────────────────────────────
+  E_sabs3(v₂) = k·v₂^l = 2.1982×0.5^1.8712 = 0.600869 eV
+  LHS = E_sabs3(v₂)  = 0.600869 eV  (kemampuan serap UHMWPE)
+  RHS = KE₂          = 0.440606 eV  (energi peluru masuk layer 3)
+  Kriteria stopping  : TERPENUHI (E_sabs3 >= KE₂)
+
+── LANGKAH 9 — Efisiensi ───────────────────────────────────────────────
+  η_g  = KE₀ / AD_rel
+       = 176.242 / 45.4683
+       = 3.87616  eV·cm²/(g·Å)
+
+  η_ec = E_cap,total / AD_rel
+       = 176.353 / 45.4683
+       = 3.87858  eV·cm²/(g·Å)
+
+── LANGKAH 10 — Ketebalan Nyata ────────────────────────────────────────
+  T_nyata = AD_ref / (ρ₁·f₁+ρ₂·f₂+ρ₃·f₃) = 3.26 / 1.21184 = 26.9011 mm
+  t₁_nyata = 0.602275 × 26.9011 = 16.2019 mm
+  t₂_nyata = 0.279814 × 26.9011 = 7.52732 mm
+  t₃_nyata = 0.117910 × 26.9011 = 3.17192 mm
+
+── RINGKASAN ────────────────────────────────────────────────────────────
+  1) Kriteria stopping : TERPENUHI
+  2) AD_rel   = 45.4683 g/cm²·Å
+  3) η_g      = 3.87616 eV·cm²/(g·Å)
+  4) η_ec     = 3.87858 eV·cm²/(g·Å)   ← metrik efisiensi utama
+  5) φ₃ = 1.250 (over-design: ketebalan UHMWPE melebihi PD intrinsik)
+
