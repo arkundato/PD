@@ -1,0 +1,116 @@
+# =================================================================
+# LAMMPS Script: Uniaxial Tension Simulation dengan Morse Potential
+# Test: Uniaxial Tension untuk menghitung Young's Modulus 
+# a.arkundato@unej.ac.id
+# =================================================================
+
+# ------------------------- INITIALIZATION -------------------------
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+
+read_data armor_BCCM_no_bullet.lmp
+
+# Definisi massa atom
+mass 1 10.811  # Boron
+mass 2 12.011  # Carbon
+
+# ------------------------- MORSE POTENTIAL PARAMETERS -------------------------
+# Parameter Morse potential untuk BCCM system   
+# Format: pair_coeff i j D0 alpha r0 cutoff
+
+pair_style      morse 12.0
+# see in the article for details
+pair_coeff 1 1 0.78  2.05  2.15    10  # 
+pair_coeff 2 2 0.61  1.80  1.9014  10  #
+pair_coeff 1 2 0.69  1.92  2.026   12  # 
+
+# Neighbor settings (optimized untuk BCCM)
+neighbor        2.0 bin
+neigh_modify    delay 0 every 1 check yes one 10000 page 100000
+
+# ------------------------- MINIMISASI ENERGI -------------------------
+thermo          10
+thermo_style    custom step pe ke etotal press vol density
+min_style cg          # atau hftn
+fix 1 all box/relax iso 0.0 vmax 0.001
+minimize 1e-2 1e-4 5000 10000
+unfix 1
+# Check hasil minimisasi
+variable pe_min equal pe
+print "Energy after minimization: ${pe_min}"
+
+# ------------------------- EQUILIBRATION -------------------------
+reset_timestep 0
+timestep 0.0005  # timestep 1 fs untuk material keras
+# Inisialisasi kecepatan
+velocity all create 300 87654321 mom yes rot no
+# Equilibration dengan NPT ensemble
+fix 1 all npt temp 300 300 0.1 iso 0 0 1.0 drag 1.0
+fix 2 all temp/rescale 10 300 300 0.02 1.0
+thermo 100
+thermo_style custom step temp press pe ke etotal vol density lx ly lz
+# Run equilibration
+run 20000
+# Unfix equilibration fixes
+unfix 1
+#unfix 2
+
+# ------------------------- COMPUTE & OUTPUT -------------------------
+compute peratom all pe/atom
+compute stress all stress/atom NULL
+compute temp_atom all temp
+
+#========================= uniaksial dan poisson ======================
+
+# ------- UNIAXIAL TENSION -------
+print "Starting uniaxial tension simulation..."
+variable tmp equal "lx"
+variable L0 equal ${tmp}
+variable tmp2 equal "ly" 
+variable W0 equal ${tmp2}
+variable tmp3 equal "lz"
+variable H0 equal ${tmp3}
+print "Initial dimensions - Lx: ${L0}, Ly: ${W0}, Lz: ${H0}"
+reset_timestep 0
+timestep 0.0005
+fix tension_control all npt temp 300 300 0.1 y 0 0 1.0 z 0 0 1.0 drag 1.0
+
+variable strain_rate equal 5.0e9
+variable strain_rate_reduced equal "v_strain_rate / 1.0e12"
+fix deform_x all deform 1 x erate ${strain_rate_reduced} units box remap x
+
+variable strain_x equal "(lx - v_L0)/v_L0"
+variable strain_y equal "(ly - v_W0)/v_W0"
+variable strain_z equal "(lz - v_H0)/v_H0"
+
+variable stress_xx equal "-pxx/10000"
+variable stress_yy equal "-pyy/10000"
+variable stress_zz equal "-pzz/10000"
+variable stress_vm equal "sqrt(0.5*((v_stress_xx-v_stress_yy)^2 + (v_stress_yy-v_stress_zz)^2 + (v_stress_zz-v_stress_xx)^2))"
+
+fix output_data all print 100 "${strain_x} ${strain_y} ${strain_z} ${stress_xx} ${stress_yy} ${stress_zz} ${stress_vm}" &
+    file stress_strain_data.txt screen no &
+    title "# Strain_x Strain_y Strain_z Stress_xx(GPa) Stress_yy(GPa) Stress_zz(GPa) Stress_VM(GPa)"
+
+thermo 1000
+thermo_style custom step v_strain_x v_strain_y v_strain_z temp v_stress_xx v_stress_yy v_stress_zz v_stress_vm press vol
+run 20000
+
+print "Uniaxial tension simulation completed successfully"
+print "Data saved to stress_strain_data.txt"
+
+variable final_strain_x equal v_strain_x
+variable final_strain_y equal v_strain_y
+variable final_strain_z equal v_strain_z
+variable final_stress_xx equal v_stress_xx
+print "Final longitudinal strain (x): ${final_strain_x}"
+print "Final transverse strain (y): ${final_strain_y}"
+print "Final transverse strain (z): ${final_strain_z}"
+print "Final stress (x): ${final_stress_xx} GPa"
+unfix tension_control
+unfix deform_x
+unfix output_data
+
+
